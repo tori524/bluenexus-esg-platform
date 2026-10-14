@@ -1,0 +1,3 @@
+﻿plant,date,influent_m3,treated_m3,reclaimed_m3,customer_m3,freshwater_withdrawal_m3,total_water_supply_m3,conductivity_in_us_cm,conductivity_out_us_cm,ph_in,ph_out,electricity_kwh,renewable_kwh,grid_ef_kgco2e_kwh,chemical_naoh_kg,chemical_antiscalant_kg,chemical_biocide_kg,chemical_reducing_agent_kg,chemical_sdbs_kg,downtime_hours,manual_interventions,om_costs
+Demo Facility,2026-07-01,5000,3750,3700,3650,,9000,2200,100,8.1,7.0,4500,,,30,12,,,,1,3,1000
+Demo Facility,2026-07-02,5000,3750,3700,3650,,9000,2200,100,8.1,7.0,4500,,,30,12,,,,1,3,1000

@@ -1,0 +1,8 @@
+plant,date,influent_volume_m3,effluent_volume_m3,reclaimed_supply_volume_m3,customer_end_volume_m3,daily_electricity_kwh,influent_conductivity_us_cm,effluent_conductivity_us_cm,influent_ph,effluent_ph
+Example Plant,2026-07-01,5020,3765,3714,3614,4411,2208,111,8.2,7.1
+Example Plant,2026-07-02,5040,3780,3728,3628,4422,2216,112,8.2,7.1
+Example Plant,2026-07-03,5060,3795,3742,3642,4433,2224,113,8.2,7.1
+Example Plant,2026-07-04,5080,3810,3756,3656,4444,2232,114,8.2,7.1
+Example Plant,2026-07-05,5100,3825,3770,3670,4455,2240,115,8.2,7.1
+Example Plant,2026-07-06,5120,3840,3784,3684,4466,2248,116,8.2,7.1
+Example Plant,2026-07-07,5140,3855,3798,3698,4477,2256,117,8.2,7.1
