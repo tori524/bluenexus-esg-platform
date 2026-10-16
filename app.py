@@ -144,7 +144,23 @@ def enter_fields(prefix):
     if prefix=='current':
         factor_input()
     header('Chemicals','AWS 3.0 / GRI 303')
-    chosen=st.multiselect('Chemicals used',CHEMS+['Other'],key='chemselect_'+prefix)
+    # The BlueNexus sample contains dose measurements, not verified kg of chemical.
+    # Present the recognised measurements in the input form without silently
+    # converting them into chemical mass or treating planned doses as a baseline.
+    if st.session_state.get('input_'+prefix)=='CSV / Excel upload':
+        selected_dosing_records=st.session_state.get('selected_'+prefix)
+        if selected_dosing_records is not None:
+            detected_doses=dosing_summary(selected_dosing_records)
+            if not detected_doses.empty:
+                st.markdown('**Chemical dosing recognised from your CSV**')
+                st.dataframe(detected_doses,hide_index=True,use_container_width=True)
+                notes('Planned and actual doses were read automatically from your uploaded records.',
+                      'Dose unit is assumed mg/L, but is not verified by BlueNexus.',
+                      'Coverage is the share of records with both planned and actual values.',
+                      'Dosing values are not automatically converted into chemical consumption (kg).')
+            else:
+                st.caption('No paired planned/actual chemical dosing records were found in this upload.')
+    chosen=st.multiselect('Chemicals used — consumption in kg',CHEMS+['Other'],key='chemselect_'+prefix)
     values['chemicals_kg']={}
     for chemical in chosen:
         key=CHEM_COLS.get(chemical,'chemical_other_kg')
