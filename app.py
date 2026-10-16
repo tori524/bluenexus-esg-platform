@@ -517,9 +517,17 @@ elif page=='Sustainability Impact':
     notes('Pump runtime, frequency, temperature and vibration are equipment indicators.',
           'Sensor units and runtime-counter units require confirmation.',
           'These signals do not independently prove AI savings or downtime reduction.')
-    for field,label in [('pump_runtime_change','Pump Runtime — Counter Change'),('pump_frequency','Pump Frequency — Average'),
-                        ('pump_temperature','Pump Temperature — Average'),('pump_vibration','Pump Vibration — Average')]:
-        comparison(label,old.get(field),cur.get(field),'unverified units','Water')
+    equipment_charts = [
+        ('pump_runtime_change', 'Pump Runtime — Counter Change'),
+        ('pump_frequency', 'Pump Frequency — Average'),
+        ('pump_temperature', 'Pump Temperature — Average'),
+        ('pump_vibration', 'Pump Vibration — Average'),
+    ]
+    for start in (0, 2):
+        left, right = st.columns(2)
+        for column, (field, label) in zip((left, right), equipment_charts[start:start + 2]):
+            with column:
+                comparison(label, old.get(field), cur.get(field), 'unverified units', 'Water')
     ev=a.get('equipment_current')
     if ev is not None and not ev.empty:
         st.dataframe(ev[['Plant','Metric','Value','Unit / status','Valid readings']],hide_index=True,use_container_width=True)
@@ -609,16 +617,6 @@ elif page=='GRI / AWS Reporting':
     a=st.session_state.assessment
     notes('See which results are available now.','Review further reporting recommendations and missing evidence.','Download a draft report or the calculation methodology.')
 
-    st.subheader('Waterhaus™ Equipment Monitoring Evidence')
-    notes('Supporting operational evidence, not a separate GRI/AWS compliance disclosure.',
-          'Runtime is a cumulative counter difference; other sensor values are period averages.',
-          'Previous demo equipment signals are synthetic, not historical measurements.')
-    erows=[]
-    for key,label in [('pump_runtime_change','Pump Runtime — Counter Change'),('pump_frequency','Pump Frequency — Average'),
-                      ('pump_temperature','Pump Temperature — Average'),('pump_vibration','Pump Vibration — Average')]:
-        erows.append({'Metric':label,'Previous':a['previous'].get(key),'Current':a['current'].get(key),
-                      'Evidence status':'Unverified sensor units; illustrative previous' if a['estimated'] else 'Client reported; verify sensor units'})
-    st.dataframe(pd.DataFrame(erows),hide_index=True,use_container_width=True)
     st.subheader('1. Priority Reporting KPIs')
     st.caption('Core operational results from your assessment. A calculated KPI does not mean a complete GRI/AWS disclosure.')
     priority=build_priority_kpis(a['results'])
