@@ -9,6 +9,7 @@ from calculations import calculate, validate_water_consistency
 from period_data import CHEMS,CHEM_COLS,REQUIRED,prepare,select_period,aggregate,matching_periods,monthly_trend,quarterly_trend
 from reporting import build_disclosure_index,narrative,build_priority_kpis,build_further_recommendations,methodology_appendix,reporting_draft
 from report_export import build_esg_report_docx
+from chemical_dosing import dosing_summary
 
 ROOT=Path(__file__).parent
 st.set_page_config(page_title='BlueNexus | ESG Reporting',page_icon=str(ROOT/'assets'/'favicon.png'),layout='wide',initial_sidebar_state='expanded')
@@ -444,6 +445,32 @@ elif page=='Sustainability Impact':
         temp=a['current_df'].copy();temp['scope2_tco2e']=temp.electricity_kwh*a['ef']/1000
         trend(temp,'scope2_tco2e','Scope 2 Emissions Trend','Carbon',a['current_frequency'])
     header('Chemicals','AWS 3.0 / GRI 303')
+    # Operational dosing is a separate evidence view; never treat dose as kg.
+    if a['current_df'] is not None:
+        dose_table = dosing_summary(a['current_df'])
+        if not dose_table.empty:
+            st.markdown('### Actual Dosing Performance')
+            notes(
+                'Automatically read from the uploaded BlueNexus CSV: planned vs actual dosing.',
+                'Assumed dose unit: mg/L (engineering assumption only; Data Dictionary v2 does not verify the unit).',
+                'Results are mean reported doses for paired valid records, not chemical consumption in kg.',
+                'Deviation = (mean actual / mean planned − 1) × 100. Negative means below plan, not verified AI savings.',
+                'Coverage counts paired records within the selected facility and reporting period.'
+            )
+            st.dataframe(dose_table, hide_index=True, use_container_width=True)
+            fig = plotly_go.Figure()
+            fig.add_bar(name='Planned', x=dose_table['Chemical'], y=dose_table['Planned dose (mean)'], marker_color='#C7B5E5')
+            fig.add_bar(name='Actual', x=dose_table['Chemical'], y=dose_table['Actual dose (mean)'], marker_color=COLORS['Chemicals'])
+            fig.update_layout(barmode='group', title='Planned vs Actual Dosing (assumed mg/L)',
+                              yaxis_title='Mean reported dose (assumed mg/L)',
+                              xaxis_tickangle=0, height=360,
+                              margin=dict(l=10, r=10, t=55, b=55),
+                              legend=dict(orientation='h', y=1.12))
+            st.plotly_chart(fig, use_container_width=True)
+            low = dose_table.loc[dose_table['Coverage (%)'] < 80, 'Chemical'].tolist()
+            if low:
+                st.caption('Limited coverage: ' + ', '.join(low) + '. Do not interpret these as full-period chemical performance.')
+    st.markdown('### Chemical Consumption & Historical Comparison')
     if chemical_names:
         rows=[]
         for name in chemical_names:
