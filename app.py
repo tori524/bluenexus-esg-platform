@@ -464,7 +464,7 @@ elif page=='Sustainability Impact':
     def get(k):return lookup.get(k)
     notes('Previous values are shown above Current in every comparison.','Historical comparisons are not proof that AquaxGo caused the difference.','Estimated historical inputs produce illustrative scenario results.' if a['estimated'] else 'Historical data is client-reported, not independently assured.')
     st.header('AquaxGo Improvement Potential')
-    # Five intervention dimensions, all with explicit values or missing-data instructions.
+    # Six impact indicators across sustainability and operational improvements.
     def difference(field):
         before,now=old.get(field),cur.get(field)
         return before-now if before is not None and now is not None else None
@@ -480,6 +480,7 @@ elif page=='Sustainability Impact':
                    'Performance worsened vs the baseline; not a saving. '+description,theme)
     chemical_card_value=next(iter(chem_savings.values())) if len(chem_savings)==1 else None
     impact=[('Energy Savings',get('E04'),'kWh','Volume-adjusted electricity difference.','Energy'),
+            ('Estimated Scope 2 Emissions Reduction',get('C03'),'tCO₂e','Electricity-related scenario difference; same emission factor assumed. Not a verified AI reduction.','Carbon'),
             ('Chemical Savings',chemical_card_value,'kg','Multiple chemicals are shown separately below.' if len(chem_savings)>1 else 'Chemical-specific comparison.','Chemicals'),
             ('Water Recovery Improvement',get('AI01'),'m³','Additional effluent at current influent volume.','Water'),
             ('Downtime Reduction',difference('downtime_hours'),'hours','Same reporting duration required.','Water'),
