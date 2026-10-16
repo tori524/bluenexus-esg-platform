@@ -10,6 +10,7 @@ from period_data import CHEMS,CHEM_COLS,REQUIRED,prepare,select_period,aggregate
 from reporting import build_disclosure_index,narrative,build_priority_kpis,build_further_recommendations,methodology_appendix,reporting_draft
 from report_export import build_esg_report_docx
 from chemical_dosing import dosing_summary
+from equipment_monitoring import equipment_summary, equipment_daily, LABELS
 
 ROOT=Path(__file__).parent
 st.set_page_config(page_title='BlueNexus | ESG Reporting',page_icon=str(ROOT/'assets'/'favicon.png'),layout='wide',initial_sidebar_state='expanded')
@@ -109,6 +110,50 @@ def parse_upload(prefix):
         return None,None,None
 
 
+def equipment_upload(prefix):
+    st.markdown('**Equipment data — optional CSV upload**')
+    st.caption('Upload Plant A/B equipment CSV, or use a merged operational CSV above. Only the selected reporting period is used.')
+    file=st.file_uploader('Upload Waterhaus™ equipment CSV',type=['csv','xlsx'],key='equipment_file_'+prefix)
+    source=st.session_state.get('selected_'+prefix)
+    if file is not None:
+        try:
+            raw=pd.read_excel(file) if file.name.lower().endswith('.xlsx') else pd.read_csv(file)
+            if 'date' not in raw:raise ValueError('Equipment CSV needs a date column.')
+            raw['date']=pd.to_datetime(raw['date'],errors='coerce')
+            if raw['date'].isna().any():raise ValueError('Invalid equipment dates.')
+            if 'plant' not in raw:
+                plant=st.session_state.get('plant_'+prefix)
+                if not plant:plant=st.selectbox('Equipment facility',['Plant A','Plant B'],key='equipment_plant_'+prefix)
+                raw['plant']=plant
+            source=raw
+        except (ValueError,KeyError) as exc:
+            st.error('Equipment upload: '+str(exc));return None
+    if source is None:return None
+    coverage=st.session_state.get('coverage_'+prefix)
+    if coverage is not None:
+        source=source.loc[pd.to_datetime(source['date']).between(coverage['start'],coverage['end'])]
+    else:
+        dates=st.session_state.get('manual_dates_'+prefix)
+        if isinstance(dates,(tuple,list)) and len(dates)==2:
+            source=source.loc[pd.to_datetime(source['date']).between(pd.Timestamp(dates[0]),pd.Timestamp(dates[1]))]
+    plant=st.session_state.get('plant_'+prefix)
+    if plant and 'plant' in source:source=source.loc[source.plant.eq(plant)]
+    evidence=equipment_summary(source)
+    if not evidence.empty:
+        st.markdown('**Detected equipment signals**')
+        st.dataframe(evidence[['Plant','Metric','Value','Unit / status','Valid readings']],hide_index=True,use_container_width=True)
+        field_map={'Pump Runtime (cumulative change)':'pump_runtime_change','Pump Frequency (average signal)':'pump_frequency',
+                   'Pump Temperature (average signal)':'pump_temperature','Pump Vibration (average signal)':'pump_vibration'}
+        signature=hashlib.sha256(pd.util.hash_pandas_object(source, index=True).values.tobytes()).hexdigest()
+        if st.session_state.get('equipment_signature_'+prefix)!=signature:
+            for _,row in evidence.iterrows():
+                field=field_map.get(row['Metric'])
+                if field:st.session_state['field_'+prefix+'_'+field]=f"{row['Value']:.2f}"
+            st.session_state['equipment_signature_'+prefix]=signature
+    elif file is not None:
+        st.warning('No supported pump signals found in the selected equipment records.')
+    return evidence
+
 def factor_input():
     a,b=st.columns(2)
     with a:choice=st.selectbox('Location / grid',list(FACTORS),key='factor_choice')
@@ -171,6 +216,16 @@ def enter_fields(prefix):
     with a:values['downtime_hours']=val(prefix+'_downtime_hours','Unplanned downtime (hours)')
     with b:values['manual_interventions']=val(prefix+'_manual_interventions','Manual interventions (count)')
     with c:values['om_costs']=val(prefix+'_om_costs','O&M Costs (same currency)')
+    st.markdown('**Waterhaus™ Equipment Monitoring**')
+    notes('Optional pump signals for operational evidence, not proof of AI savings.',
+          'Runtime is a change in cumulative counter, not downtime.',
+          'Sensor units are unverified. Previous demo signals are synthetic.')
+    e1,e2=st.columns(2)
+    for i,(key,label) in enumerate([('pump_runtime_change','Pump runtime — cumulative counter change'),
+                                    ('pump_frequency','Pump frequency — average signal'),
+                                    ('pump_temperature','Pump temperature — average signal'),
+                                    ('pump_vibration','Pump vibration — average signal')]):
+        with (e1 if i%2==0 else e2):values[key]=val(prefix+'_'+key,label)
     return values
 
 # Style
@@ -294,6 +349,8 @@ elif page=='Data Input':
         notes('Demo additions are synthetic, not BlueNexus measurements.',
               'Missing client supply, freshwater, quality, chemical and operations inputs use illustrative assumptions.',
               'Existing uploaded measurements are not overwritten; review the filled fields before reporting.')
+    # Equipment data can be uploaded separately or read from the merged CSV.
+    current_equipment=equipment_upload('current')
     current=enter_fields('current')
     st.divider()
     st.subheader('2. Previous Operations — Before AquaxGo')
@@ -307,7 +364,7 @@ elif page=='Data Input':
         # Explicit illustrative scenario; never asserted as historical BlueNexus data.
         q=current.get('treated_m3') or 100000
         feed=current.get('influent_m3') or q/0.75
-        demo={'treated_m3':q,'influent_m3':q/0.70,'electricity_kwh':q*1.50,'reclaimed_m3':q*0.70/0.75,'customer_m3':q*0.97,'freshwater_withdrawal_m3':(current.get('freshwater_withdrawal_m3') or q*.30)*1.10,'total_water_supply_m3':(current.get('total_water_supply_m3') or q*1.65)*1.10,'conductivity_in_us_cm':current.get('conductivity_in_us_cm') or 2400,'conductivity_out_us_cm':125,'ph_in':8.3,'ph_out':7.2,'downtime_hours':16,'manual_interventions':60,'om_costs':max(12000,(current.get('om_costs') or 8000)*1.25)}
+        demo={'treated_m3':q,'influent_m3':q/0.70,'electricity_kwh':q*1.50,'reclaimed_m3':q*0.70/0.75,'customer_m3':q*0.97,'freshwater_withdrawal_m3':(current.get('freshwater_withdrawal_m3') or q*.30)*1.10,'total_water_supply_m3':(current.get('total_water_supply_m3') or q*1.65)*1.10,'conductivity_in_us_cm':current.get('conductivity_in_us_cm') or 2400,'conductivity_out_us_cm':125,'ph_in':8.3,'ph_out':7.2,'downtime_hours':16,'manual_interventions':60,'om_costs':max(12000,(current.get('om_costs') or 8000)*1.25),'pump_runtime_change':(current.get('pump_runtime_change') or 800)*1.10,'pump_frequency':(current.get('pump_frequency') or 48)*1.05,'pump_temperature':(current.get('pump_temperature') or 55)*1.08,'pump_vibration':(current.get('pump_vibration') or 2.8)*1.15}
         for chemical,mass in current.get('chemicals_kg',{}).items():
             demo[CHEM_COLS.get(chemical,'chemical_other_kg')]=mass/0.85
         setfields('previous',demo)
@@ -320,8 +377,11 @@ elif page=='Data Input':
               'Chemical consumption is assumed 15% lower after AquaxGo, for the same chemical type.',
               'Illustrative downtime baseline: 16 hours; manual interventions baseline: 60.',
               'Illustrative O&M baseline: at least 12,000 or 125% of current costs; compare consistent currency and scope.',
+              'Previous equipment demo: runtime counter change +10%, frequency +5%, temperature +8%, vibration +15% versus current (or illustrative fallback).',
+              'Equipment signals are not verified reductions in downtime or maintenance costs.',
               'All demo comparisons are illustrative and are not verified AquaxGo-attributable savings.')
     if st.session_state.input_previous=='CSV / Excel upload':parse_upload('previous')
+    previous_equipment=equipment_upload('previous')
     previous=enter_fields('previous')
     st.divider()
     choice=st.session_state.factor_choice
@@ -362,7 +422,7 @@ elif page=='Data Input':
                             if rr.kpi_id=='C02':rr.value=total_emissions*1000/d['treated_m3']
                             if rr.kpi_id=='C03':rr.value=None;rr.note='Baseline emissions comparison needs consistent historical factor methodology.'
                     issues=validate_water_consistency(d)
-                    st.session_state.assessment={'current':current,'previous':previous,'inputs':d,'results':res,'issues':issues,'ef':ef,'factor':choice,'estimated':st.session_state.source_previous=='Estimated historical data' or st.session_state.source_current=='Estimated' or st.session_state.get('demo_current_used',False) or st.session_state.get('demo_used',False),'current_df':st.session_state.get('selected_current') if st.session_state.input_current=='CSV / Excel upload' else None,'current_frequency':st.session_state.freq_current,'previous_df':st.session_state.get('selected_previous') if st.session_state.input_previous=='CSV / Excel upload' else None,'previous_frequency':st.session_state.freq_previous}
+                    st.session_state.assessment={'current':current,'previous':previous,'inputs':d,'results':res,'issues':issues,'ef':ef,'factor':choice,'estimated':st.session_state.source_previous=='Estimated historical data' or st.session_state.source_current=='Estimated' or st.session_state.get('demo_current_used',False) or st.session_state.get('demo_used',False),'current_df':st.session_state.get('selected_current') if st.session_state.input_current=='CSV / Excel upload' else None,'current_frequency':st.session_state.freq_current,'previous_df':st.session_state.get('selected_previous') if st.session_state.input_previous=='CSV / Excel upload' else None,'previous_frequency':st.session_state.freq_previous,'equipment_current':current_equipment,'equipment_previous':previous_equipment}
                     st.session_state.ready=True
                     go('Sustainability Impact')
                 except ValueError as exc:st.error(str(exc))
@@ -422,6 +482,16 @@ elif page=='Sustainability Impact':
     ops1,ops2=st.columns(2)
     with ops1:comparison('Operations · Manual Interventions',old.get('manual_interventions'),cur.get('manual_interventions'),'count','Energy')
     with ops2:comparison('Operations · O&M Costs',old.get('om_costs'),cur.get('om_costs'),'currency units','Energy')
+    st.subheader('Waterhaus™ Equipment Monitoring — Supporting Evidence')
+    notes('Pump runtime, frequency, temperature and vibration are equipment indicators.',
+          'Sensor units and runtime-counter units require confirmation.',
+          'These signals do not independently prove AI savings or downtime reduction.')
+    for field,label in [('pump_runtime_change','Pump Runtime — Counter Change'),('pump_frequency','Pump Frequency — Average'),
+                        ('pump_temperature','Pump Temperature — Average'),('pump_vibration','Pump Vibration — Average')]:
+        comparison(label,old.get(field),cur.get(field),'unverified units','Water')
+    ev=a.get('equipment_current')
+    if ev is not None and not ev.empty:
+        st.dataframe(ev[['Plant','Metric','Value','Unit / status','Valid readings']],hide_index=True,use_container_width=True)
     st.divider();st.header('Current Sustainability Performance')
     header('Water','GRI 303 / AWS 3.0')
     c1,c2,c3=st.columns(3)
@@ -508,6 +578,16 @@ elif page=='GRI / AWS Reporting':
     a=st.session_state.assessment
     notes('See which results are available now.','Review further reporting recommendations and missing evidence.','Download a draft report or the calculation methodology.')
 
+    st.subheader('Waterhaus™ Equipment Monitoring Evidence')
+    notes('Supporting operational evidence, not a separate GRI/AWS compliance disclosure.',
+          'Runtime is a cumulative counter difference; other sensor values are period averages.',
+          'Previous demo equipment signals are synthetic, not historical measurements.')
+    erows=[]
+    for key,label in [('pump_runtime_change','Pump Runtime — Counter Change'),('pump_frequency','Pump Frequency — Average'),
+                      ('pump_temperature','Pump Temperature — Average'),('pump_vibration','Pump Vibration — Average')]:
+        erows.append({'Metric':label,'Previous':a['previous'].get(key),'Current':a['current'].get(key),
+                      'Evidence status':'Unverified sensor units; illustrative previous' if a['estimated'] else 'Client reported; verify sensor units'})
+    st.dataframe(pd.DataFrame(erows),hide_index=True,use_container_width=True)
     st.subheader('1. Priority Reporting KPIs')
     st.caption('Core operational results from your assessment. A calculated KPI does not mean a complete GRI/AWS disclosure.')
     priority=build_priority_kpis(a['results'])

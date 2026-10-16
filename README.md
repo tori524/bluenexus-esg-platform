@@ -19,3 +19,6 @@ Only synthetic demonstration CSV files are bundled. Do not commit or upload prop
 
 ## Chemical dosing evidence (v13.1)
 Upload BlueNexus `plant_daily_performance.csv` or its cleaned version using Current Operations -> CSV / Excel upload. The Sustainability Impact -> Chemicals section automatically shows paired planned and actual dosing values, percentage deviation, and record coverage. The reported dose unit is **unverified** by Data Dictionary v2; mg/L is an explicit *assumption for visual labelling only*. Dosing is never converted to kg or claimed as verified AI chemical savings. The separate chemical consumption (kg) workflow remains available.
+
+
+Equipment monitoring: upload Plant A/B equipment CSV separately in Current/Previous Operations or use the private merged CSV. Pump runtime counter change and average frequency/temperature/vibration signals are supporting evidence only; units are unverified. Demo previous equipment values are synthetic. The real merged CSV is not bundled for public GitHub upload.

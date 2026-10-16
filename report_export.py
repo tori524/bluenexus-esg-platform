@@ -103,6 +103,14 @@ def build_esg_report_docx(company,period,assessment):
         _chart(doc,_bar_chart(['Previous (adjusted)','Current'],[adjusted,new],f'{name} chemical consumption',COLORS['Chemicals'],'kg'),'Chemical-specific mass; historical intensity is adjusted to current effluent volume. Different chemicals are not aggregated.')
     for field,label,unit in [('downtime_hours','Unplanned downtime','hours'),('manual_interventions','Manual interventions','count'),('om_costs','O&M costs','currency units')]:
         _chart(doc,_bar_chart(['Previous','Current'],[old.get(field),cur.get(field)],label,COLORS['Energy'],unit),'Use comparable operating periods and the same measurement boundary. An increase is not a saving.')
+    doc.add_heading('Waterhaus™ equipment monitoring evidence',level=2)
+    doc.add_paragraph('Pump sensor values are supporting evidence only. Units and calibration require confirmation; cumulative runtime counter changes are not downtime or AI savings.')
+    for field,label in [('pump_runtime_change','Pump runtime — counter change'),('pump_frequency','Pump frequency — average'),
+                        ('pump_temperature','Pump temperature — average'),('pump_vibration','Pump vibration — average')]:
+        old_v=_number(old.get(field));cur_v=_number(cur.get(field))
+        doc.add_paragraph(f'{label}: Previous {_format(old_v,"unverified units")} | Current {_format(cur_v,"unverified units")}',style='List Bullet')
+        _chart(doc,_bar_chart(['Previous','Current'],[old_v,cur_v],label,COLORS['Water'],'sensor units'),
+               'Operational evidence only; historical demo signals, where used, are synthetic assumptions.')
     doc.add_heading('3. Current sustainability performance',level=1)
     _chart(doc,_donut(by.get('W03')),'Recovery is a treatment efficiency metric, not freshwater substitution.')
     _chart(doc,_bar_chart(['Influent','Effluent','Reclaimed'],[by.get('W01'),by.get('W02'),by.get('W04')],'Water volumes',COLORS['Water'],'m³'),'These flows are not necessarily additive and may reflect different metering boundaries.')
