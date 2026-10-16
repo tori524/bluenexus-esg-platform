@@ -22,3 +22,7 @@ Upload BlueNexus `plant_daily_performance.csv` or its cleaned version using Curr
 
 
 Equipment monitoring: upload Plant A/B equipment CSV separately in Current/Previous Operations or use the private merged CSV. Pump runtime counter change and average frequency/temperature/vibration signals are supporting evidence only; units are unverified. Demo previous equipment values are synthetic. The real merged CSV is not bundled for public GitHub upload.
+
+
+### v13.4 - Single merged CSV workflow
+Upload one merged operational CSV in Current or Previous Data Input. Equipment pump runtime, frequency, temperature and vibration are extracted from that same file (where present) and shown under the separate grey-blue Waterhaus™ Operations section. The standalone equipment CSV uploader has been removed. These equipment signals are supporting evidence and are **not** a fifth ESG dimension. Unverified sensor units remain labelled accordingly.

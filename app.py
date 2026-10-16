@@ -29,6 +29,14 @@ def notes(*items):
 def header(name,standard):
     color=COLORS[name]
     st.markdown(f'<div class="bn-section" style="background:{LIGHT[name]};border-left:5px solid {color}">{svg(name,color)}<b style="color:{color}">{name} · {esc(standard)}</b></div>',unsafe_allow_html=True)
+def operations_header():
+    st.markdown(
+        '<div class="bn-section" style="background:#E8EEF5;border-left:5px solid #607D98">'
+        +svg('Operations','#496A86')
+        +'<b style="color:#36556F">Waterhaus™ Operations</b></div>',
+        unsafe_allow_html=True)
+    st.caption('Operational monitoring and maintenance evidence · not a separate ESG reporting dimension.')
+
 def metric(name,value,unit='',note='',theme='Water'):
     color=COLORS[theme]
     st.markdown(f'<div class="bn-card" style="border-top:4px solid {color};background:{LIGHT[theme]}"><div class="bn-card-label">{esc(name)}</div><div class="bn-card-value">{esc(fmt(value,unit))}</div><div class="bn-card-note">{esc(note)}</div></div>',unsafe_allow_html=True)
@@ -110,48 +118,27 @@ def parse_upload(prefix):
         return None,None,None
 
 
-def equipment_upload(prefix):
-    st.markdown('**Equipment data — optional CSV upload**')
-    st.caption('Upload Plant A/B equipment CSV, or use a merged operational CSV above. Only the selected reporting period is used.')
-    file=st.file_uploader('Upload Waterhaus™ equipment CSV',type=['csv','xlsx'],key='equipment_file_'+prefix)
+def equipment_from_merged(prefix):
+    """Equipment evidence comes from the same selected CSV as performance data."""
+    if st.session_state.get('input_'+prefix) != 'CSV / Excel upload':
+        return None
     source=st.session_state.get('selected_'+prefix)
-    if file is not None:
-        try:
-            raw=pd.read_excel(file) if file.name.lower().endswith('.xlsx') else pd.read_csv(file)
-            if 'date' not in raw:raise ValueError('Equipment CSV needs a date column.')
-            raw['date']=pd.to_datetime(raw['date'],errors='coerce')
-            if raw['date'].isna().any():raise ValueError('Invalid equipment dates.')
-            if 'plant' not in raw:
-                plant=st.session_state.get('plant_'+prefix)
-                if not plant:plant=st.selectbox('Equipment facility',['Plant A','Plant B'],key='equipment_plant_'+prefix)
-                raw['plant']=plant
-            source=raw
-        except (ValueError,KeyError) as exc:
-            st.error('Equipment upload: '+str(exc));return None
-    if source is None:return None
-    coverage=st.session_state.get('coverage_'+prefix)
-    if coverage is not None:
-        source=source.loc[pd.to_datetime(source['date']).between(coverage['start'],coverage['end'])]
-    else:
-        dates=st.session_state.get('manual_dates_'+prefix)
-        if isinstance(dates,(tuple,list)) and len(dates)==2:
-            source=source.loc[pd.to_datetime(source['date']).between(pd.Timestamp(dates[0]),pd.Timestamp(dates[1]))]
-    plant=st.session_state.get('plant_'+prefix)
-    if plant and 'plant' in source:source=source.loc[source.plant.eq(plant)]
+    if source is None or source.empty:
+        return None
     evidence=equipment_summary(source)
-    if not evidence.empty:
-        st.markdown('**Detected equipment signals**')
-        st.dataframe(evidence[['Plant','Metric','Value','Unit / status','Valid readings']],hide_index=True,use_container_width=True)
-        field_map={'Pump Runtime (cumulative change)':'pump_runtime_change','Pump Frequency (average signal)':'pump_frequency',
-                   'Pump Temperature (average signal)':'pump_temperature','Pump Vibration (average signal)':'pump_vibration'}
-        signature=hashlib.sha256(pd.util.hash_pandas_object(source, index=True).values.tobytes()).hexdigest()
-        if st.session_state.get('equipment_signature_'+prefix)!=signature:
-            for _,row in evidence.iterrows():
-                field=field_map.get(row['Metric'])
-                if field:st.session_state['field_'+prefix+'_'+field]=f"{row['Value']:.2f}"
-            st.session_state['equipment_signature_'+prefix]=signature
-    elif file is not None:
-        st.warning('No supported pump signals found in the selected equipment records.')
+    if evidence.empty:
+        return None
+    field_map={'Pump Runtime (cumulative change)':'pump_runtime_change',
+               'Pump Frequency (average signal)':'pump_frequency',
+               'Pump Temperature (average signal)':'pump_temperature',
+               'Pump Vibration (average signal)':'pump_vibration'}
+    signature=hashlib.sha256(pd.util.hash_pandas_object(source,index=True).values.tobytes()).hexdigest()
+    if st.session_state.get('equipment_signature_'+prefix)!=signature:
+        for _,row in evidence.iterrows():
+            field=field_map.get(row['Metric'])
+            if field:
+                st.session_state['field_'+prefix+'_'+field]=f"{row['Value']:.2f}"
+        st.session_state['equipment_signature_'+prefix]=signature
     return evidence
 
 def factor_input():
@@ -211,13 +198,13 @@ def enter_fields(prefix):
         key=CHEM_COLS.get(chemical,'chemical_other_kg')
         mass=val(prefix+'_'+key,chemical+' consumed (kg)')
         if mass is not None:values['chemicals_kg'][chemical]=mass
-    st.markdown('**Waterhaus™ Operations**')
+    operations_header()
     a,b,c=st.columns(3)
     with a:values['downtime_hours']=val(prefix+'_downtime_hours','Unplanned downtime (hours)')
     with b:values['manual_interventions']=val(prefix+'_manual_interventions','Manual interventions (count)')
     with c:values['om_costs']=val(prefix+'_om_costs','O&M Costs (same currency)')
-    st.markdown('**Waterhaus™ Equipment Monitoring**')
-    notes('Optional pump signals for operational evidence, not proof of AI savings.',
+    st.markdown('**Equipment Monitoring**')
+    notes('Pump signals are automatically read from the merged CSV, or may be entered manually.',
           'Runtime is a change in cumulative counter, not downtime.',
           'Sensor units are unverified. Previous demo signals are synthetic.')
     e1,e2=st.columns(2)
@@ -349,9 +336,11 @@ elif page=='Data Input':
         notes('Demo additions are synthetic, not BlueNexus measurements.',
               'Missing client supply, freshwater, quality, chemical and operations inputs use illustrative assumptions.',
               'Existing uploaded measurements are not overwritten; review the filled fields before reporting.')
-    # Equipment data can be uploaded separately or read from the merged CSV.
-    current_equipment=equipment_upload('current')
+    # Equipment signals are recognised from the same merged operational upload.
+    current_equipment=equipment_from_merged('current')
     current=enter_fields('current')
+    if current_equipment is not None and not current_equipment.empty:
+        st.caption('Pump signals above were automatically filled from the merged operational CSV. Units require verification.')
     st.divider()
     st.subheader('2. Previous Operations — Before AquaxGo')
     notes('Use the same calendar period before AquaxGo was installed.','Current and previous uploads may have different frequencies.','Historical estimates are allowed but will be labelled as assumptions.')
@@ -381,8 +370,10 @@ elif page=='Data Input':
               'Equipment signals are not verified reductions in downtime or maintenance costs.',
               'All demo comparisons are illustrative and are not verified AquaxGo-attributable savings.')
     if st.session_state.input_previous=='CSV / Excel upload':parse_upload('previous')
-    previous_equipment=equipment_upload('previous')
+    previous_equipment=equipment_from_merged('previous')
     previous=enter_fields('previous')
+    if previous_equipment is not None and not previous_equipment.empty:
+        st.caption('Previous pump signals were automatically filled from the uploaded historical merged CSV.')
     st.divider()
     choice=st.session_state.factor_choice
     ef=FACTORS[choice] if FACTORS[choice] is not None else st.session_state.factor_custom
