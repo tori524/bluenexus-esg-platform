@@ -94,13 +94,52 @@ def parse_upload(prefix):
             min_date=date(min_date.year,min_date.month,1)
             import calendar
             max_date=date(max_date.year,max_date.month,calendar.monthrange(max_date.year,max_date.month)[1])
-        selected_dates=st.date_input('Select reporting period',(min_date,max_date),key='dates_'+prefix)
+        # Merged equipment files may span more dates than water/energy measurements.
+        # Default to the continuous period with all required operational fields present.
+        facility_rows=x.loc[x.plant.eq(plant)].sort_values('date')
+        measured=facility_rows.dropna(subset=REQUIRED)
+        if not measured.empty:
+            # Prefer the latest contiguous sequence of complete observations.
+            # This avoids selecting January-August when water/energy exist only in July-August.
+            keys=measured['date'].dt.to_period('Q' if frequency=='Quarterly' else 'M' if frequency=='Monthly' else 'D')
+            ordinals=keys.astype('int64')
+            runs=ordinals.diff().ne(1).cumsum()
+            latest_run=measured.loc[runs.eq(runs.iloc[-1])]
+            first=latest_run.date.min()
+            last=latest_run.date.max()
+            if frequency=='Quarterly':
+                default_start=first.to_period('Q').start_time.date()
+                default_end=last.to_period('Q').end_time.date()
+            elif frequency=='Monthly':
+                default_start=first.to_period('M').start_time.date()
+                default_end=last.to_period('M').end_time.date()
+            else:
+                default_start=first.date()
+                default_end=last.date()
+            if (default_start,default_end)!=(min_date,max_date):
+                st.caption('Default dates use the latest continuous period with complete water and electricity readings. Equipment records outside this period remain available in the uploaded file.')
+        else:
+            default_start,default_end=min_date,max_date
+            st.warning('No complete water and electricity observations found for this facility. Equipment data alone cannot calculate the core water/energy KPIs.')
+        # Key changes when the uploaded file, facility or frequency changes, preventing stale date selections.
+        file_id=hashlib.sha256(uploaded.getvalue()).hexdigest()[:12]
+        date_key=f'dates_{prefix}_{file_id}_{plant}_{frequency}'
+        selected_dates=st.date_input('Select reporting period',(default_start,default_end),min_value=min_date,max_value=max_date,key=date_key)
         if len(selected_dates)!=2:return None,None,None
         selected,coverage=select_period(x,plant,selected_dates[0],selected_dates[1],frequency)
         if coverage['missing']:
             st.error(f"Missing {coverage['missing']} {frequency.lower()} records. Complete the period before calculating.")
             return None,selected,coverage
         vals=aggregate(selected)
+        # A complete date range does not guarantee complete measurements.
+        # Make missing measurement coverage visible instead of silently treating it as zero.
+        incomplete=[name for name in REQUIRED if name not in selected or selected[name].isna().any()]
+        if incomplete:
+            counts={name:int(selected[name].notna().sum()) if name in selected else 0 for name in REQUIRED}
+            st.warning('Some core water/energy measurements are missing for the selected period: '
+                       +', '.join(incomplete)+'. Valid records: '
+                       +', '.join(f'{name} {count}/{len(selected)}' for name,count in counts.items())
+                       +'. Select a fully measured period to calculate all core KPIs.')
         sig=hashlib.sha256(uploaded.getvalue()+str((plant,selected_dates,frequency)).encode()).hexdigest()
         if st.session_state.get('sig_'+prefix)!=sig:
             setfields(prefix,vals)
