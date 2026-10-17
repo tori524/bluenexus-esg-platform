@@ -148,6 +148,14 @@ def parse_upload(prefix):
             st.session_state['sig_'+prefix]=sig
             st.session_state['selected_'+prefix]=selected
             st.session_state['coverage_'+prefix]=coverage
+            # Refresh dosing widgets on CSV, plant, or date changes before rendering.
+            detected = dosing_summary(selected)
+            for chemical in CHEMS:
+                matching = detected.loc[detected['Chemical'].eq(chemical)] if not detected.empty else pd.DataFrame()
+                for kind, col in [('planned', 'Planned dose (mean)'), ('actual', 'Actual dose (mean)')]:
+                    st.session_state[f'dose_{prefix}_{chemical}_{kind}'] = (
+                        float(matching.iloc[0][col]) if not matching.empty else 0.0
+                    )
             # Source widget is not mutated after creation; upload is client-reported.
             st.rerun()
         st.success(f"{coverage['observed']} {frequency.lower()} records loaded. Review the fields below.")
