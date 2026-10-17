@@ -231,6 +231,24 @@ def enter_fields(prefix):
                       'Reported doses are assumed mg/L; they are not measured chemical mass or verified AI savings.')
             else:
                 st.caption('No paired planned/actual chemical dosing records were found in this upload.')
+    st.markdown('**Chemical dosing input (assumed mg/L)**')
+    st.caption('Enter planned and actual doses for each chemical. CSV values are prefilled where available; you can edit them. Units are assumed, not verified.')
+    source_doses = dosing_summary(st.session_state.get('selected_'+prefix)) if st.session_state.get('input_'+prefix)=='CSV / Excel upload' else pd.DataFrame()
+    dose_defaults = {str(row['Chemical']): row for _,row in source_doses.iterrows()} if not source_doses.empty else {}
+    values['chemical_doses_mg_l'] = {}
+    for chemical in CHEMS:
+        default = dose_defaults.get(chemical)
+        left, right = st.columns(2)
+        with left:
+            planned = st.number_input(f'{chemical} — Planned dose (mg/L, assumed)', min_value=0.0,
+                                      value=float(default['Planned dose (mean)']) if default is not None else 0.0,
+                                      format='%.2f', key=f'dose_{prefix}_{chemical}_planned')
+        with right:
+            actual = st.number_input(f'{chemical} — Actual dose (mg/L, assumed)', min_value=0.0,
+                                     value=float(default['Actual dose (mean)']) if default is not None else 0.0,
+                                     format='%.2f', key=f'dose_{prefix}_{chemical}_actual')
+        if default is not None or planned > 0 or actual > 0:
+            values['chemical_doses_mg_l'][chemical] = {'planned':planned,'actual':actual}
     # Chemical inputs use the reported dosing signals (assumed mg/L).
     # Do not reinterpret reported dose as a mass in kg.
     values['chemicals_kg'] = {}
@@ -476,6 +494,16 @@ elif page=='Sustainability Impact':
             metric(title.replace('Savings','Increase').replace('Reduction','Increase').replace('Improvement','Decline'),abs(value),unit,
                    'Performance worsened vs the baseline; not a saving. '+description,theme)
     dose_table = dosing_summary(a.get('current_df'))
+    manual_doses = cur.get('chemical_doses_mg_l', {})
+    if manual_doses:
+        rows = []
+        for chem, vals in manual_doses.items():
+            planned, actual = vals['planned'], vals['actual']
+            rows.append({'Chemical':chem,'Planned dose (mean)':planned,'Actual dose (mean)':actual,
+                         'Deviation (%)':round((actual/planned-1)*100,2) if planned>0 else None,
+                         'Valid records':None,'Total records':None,'Coverage (%)':None})
+        dose_table = pd.DataFrame(rows)
+
     dose_below_plan = int((dose_table['Deviation (%)'] < 0).sum()) if not dose_table.empty else None
     impact=[('Energy Savings',get('E04'),'kWh','Volume-adjusted electricity difference.','Energy'),
             ('Estimated Scope 2 Emissions Reduction',get('C03'),'tCO₂e','Electricity-related scenario difference; same emission factor assumed. Not a verified AI reduction.','Carbon'),
@@ -571,6 +599,13 @@ elif page=='Sustainability Impact':
     # Operational dosing is a separate evidence view; never treat dose as kg.
     if a['current_df'] is not None:
         dose_table = dosing_summary(a['current_df'])
+        if cur.get('chemical_doses_mg_l'):
+            dose_table = pd.DataFrame([
+                {'Chemical':name,'Planned dose (mean)':v['planned'],'Actual dose (mean)':v['actual'],
+                 'Deviation (%)':round((v['actual']/v['planned']-1)*100,2) if v['planned']>0 else None,
+                 'Coverage (%)':None}
+                for name,v in cur['chemical_doses_mg_l'].items()
+            ])
         if not dose_table.empty:
             st.markdown('### Actual Dosing Performance')
             notes(
