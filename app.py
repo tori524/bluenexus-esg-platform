@@ -543,10 +543,8 @@ elif page=='Sustainability Impact':
         comparison('Maintenance · Downtime',old.get('downtime_hours'),cur.get('downtime_hours'),'hours','Water')
     with c2:
         comparison('Carbon · Electricity-related emissions',get('E03')*a['ef']/1000 if get('E03') is not None else None,get('C01'),'tCO₂e','Carbon')
-        for name in chemical_names:
-            mass=cur.get('chemicals_kg',{}).get(name);baseline=old.get('chemicals_kg',{}).get(name)
-            adjusted=baseline/old['treated_m3']*cur['treated_m3'] if baseline is not None else None
-            comparison('Chemicals · '+name,adjusted,mass,'kg','Chemicals')
+        for name, (dose_difference, dose_pct, previous_dose, current_dose) in dose_changes.items():
+            comparison('Chemicals · '+name+' Actual Dose',previous_dose,current_dose,'mg/L (assumed)','Chemicals')
 
     ops1,ops2=st.columns(2)
     with ops1:comparison('Operations · Manual Interventions',old.get('manual_interventions'),cur.get('manual_interventions'),'count','Energy')
