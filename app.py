@@ -228,15 +228,12 @@ def enter_fields(prefix):
                 notes('Planned and actual doses were read automatically from your uploaded records.',
                       'Dose unit is assumed mg/L, but is not verified by BlueNexus.',
                       'Coverage is the share of records with both planned and actual values.',
-                      'Dosing values are not automatically converted into chemical consumption (kg).')
+                      'Reported doses are assumed mg/L; they are not measured chemical mass or verified AI savings.')
             else:
                 st.caption('No paired planned/actual chemical dosing records were found in this upload.')
-    chosen=st.multiselect('Chemicals used — consumption in kg',CHEMS+['Other'],key='chemselect_'+prefix)
-    values['chemicals_kg']={}
-    for chemical in chosen:
-        key=CHEM_COLS.get(chemical,'chemical_other_kg')
-        mass=val(prefix+'_'+key,chemical+' consumed (kg)')
-        if mass is not None:values['chemicals_kg'][chemical]=mass
+    # Chemical inputs use the reported dosing signals (assumed mg/L).
+    # Do not reinterpret reported dose as a mass in kg.
+    values['chemicals_kg'] = {}
     operations_header()
     a,b,c=st.columns(3)
     with a:values['downtime_hours']=val(prefix+'_downtime_hours','Unplanned downtime (hours)')
@@ -478,10 +475,11 @@ elif page=='Sustainability Impact':
         else:
             metric(title.replace('Savings','Increase').replace('Reduction','Increase').replace('Improvement','Decline'),abs(value),unit,
                    'Performance worsened vs the baseline; not a saving. '+description,theme)
-    chemical_card_value=next(iter(chem_savings.values())) if len(chem_savings)==1 else None
+    dose_table = dosing_summary(a.get('current_df'))
+    dose_below_plan = int((dose_table['Deviation (%)'] < 0).sum()) if not dose_table.empty else None
     impact=[('Energy Savings',get('E04'),'kWh','Volume-adjusted electricity difference.','Energy'),
             ('Estimated Scope 2 Emissions Reduction',get('C03'),'tCO₂e','Electricity-related scenario difference; same emission factor assumed. Not a verified AI reduction.','Carbon'),
-            ('Chemical Savings',chemical_card_value,'kg','Multiple chemicals are shown separately below.' if len(chem_savings)>1 else 'Chemical-specific comparison.','Chemicals'),
+            ('Chemical Dosing Below Plan',dose_below_plan,'chemicals','Actual dose below planned dose; assumed mg/L. Not verified AI savings.','Chemicals'),
             ('Water Recovery Improvement',get('AI01'),'m³','Additional effluent at current influent volume.','Water'),
             ('Downtime Reduction',difference('downtime_hours'),'hours','Same reporting duration required.','Water'),
             ('Operational Cost Savings',difference('om_costs'),'currency units','Same currency and cost boundary required.','Energy')]
@@ -595,18 +593,6 @@ elif page=='Sustainability Impact':
             low = dose_table.loc[dose_table['Coverage (%)'] < 80, 'Chemical'].tolist()
             if low:
                 st.caption('Limited coverage: ' + ', '.join(low) + '. Do not interpret these as full-period chemical performance.')
-    st.markdown('### Chemical Consumption & Historical Comparison')
-    if chemical_names:
-        rows=[]
-        for name in chemical_names:
-            value=cur.get('chemicals_kg',{}).get(name)
-            if value is not None:rows.append({'Chemical':name,'Consumption (kg)':value})
-        if rows:
-            st.dataframe(pd.DataFrame(rows),hide_index=True,use_container_width=True)
-            fig=plotly_go.Figure(plotly_go.Bar(y=[r['Chemical'] for r in rows],x=[r['Consumption (kg)'] for r in rows],orientation='h',marker_color=COLORS['Chemicals']))
-            fig.update_layout(title='Chemical Consumption by Type',height=max(250,70*len(rows)),margin=dict(l=10,r=10,t=45,b=10))
-            st.plotly_chart(fig,use_container_width=True)
-    else:st.info('Enter chemical mass by type to show chemical consumption and intensity.')
     for issue in a['issues']:st.warning(issue)
 
 elif page=='GRI / AWS Reporting':
