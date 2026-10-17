@@ -218,19 +218,6 @@ def enter_fields(prefix):
     # The BlueNexus sample contains dose measurements, not verified kg of chemical.
     # Present the recognised measurements in the input form without silently
     # converting them into chemical mass or treating planned doses as a baseline.
-    if st.session_state.get('input_'+prefix)=='CSV / Excel upload':
-        selected_dosing_records=st.session_state.get('selected_'+prefix)
-        if selected_dosing_records is not None:
-            detected_doses=dosing_summary(selected_dosing_records)
-            if not detected_doses.empty:
-                st.markdown('**Chemical dosing recognised from your CSV**')
-                st.dataframe(detected_doses,hide_index=True,use_container_width=True)
-                notes('Planned and actual doses were read automatically from your uploaded records.',
-                      'Dose unit is assumed mg/L, but is not verified by BlueNexus.',
-                      'Coverage is the share of records with both planned and actual values.',
-                      'Reported doses are assumed mg/L; they are not measured chemical mass or verified AI savings.')
-            else:
-                st.caption('No paired planned/actual chemical dosing records were found in this upload.')
     st.markdown('**Chemical dosing input (assumed mg/L)**')
     st.caption('Enter planned and actual doses for each chemical. CSV values are prefilled where available; you can edit them. Units are assumed, not verified.')
     source_doses = dosing_summary(st.session_state.get('selected_'+prefix)) if st.session_state.get('input_'+prefix)=='CSV / Excel upload' else pd.DataFrame()
@@ -408,16 +395,23 @@ elif page=='Data Input':
         q=current.get('treated_m3') or 100000
         feed=current.get('influent_m3') or q/0.75
         demo={'treated_m3':q,'influent_m3':q/0.70,'electricity_kwh':q*1.50,'reclaimed_m3':q*0.70/0.75,'customer_m3':q*0.97,'freshwater_withdrawal_m3':(current.get('freshwater_withdrawal_m3') or q*.30)*1.10,'total_water_supply_m3':(current.get('total_water_supply_m3') or q*1.65)*1.10,'conductivity_in_us_cm':current.get('conductivity_in_us_cm') or 2400,'conductivity_out_us_cm':125,'ph_in':8.3,'ph_out':7.2,'downtime_hours':16,'manual_interventions':60,'om_costs':max(12000,(current.get('om_costs') or 8000)*1.25),'pump_runtime_change':(current.get('pump_runtime_change') or 800)*1.10,'pump_frequency':(current.get('pump_frequency') or 48)*1.05,'pump_temperature':(current.get('pump_temperature') or 55)*1.08,'pump_vibration':(current.get('pump_vibration') or 2.8)*1.15}
-        for chemical,mass in current.get('chemicals_kg',{}).items():
-            demo[CHEM_COLS.get(chemical,'chemical_other_kg')]=mass/0.85
         setfields('previous',demo)
-        st.session_state['chemselect_previous']=sorted(set(st.session_state.get('chemselect_previous',[]))|set(cur for cur in current.get('chemicals_kg',{})))
+        # Illustrative previous doses are based on CURRENT actual doses, not on planned doses.
+        # A current dose 15% below the assumed previous dose implies previous = current / 0.85.
+        for chemical in CHEMS:
+            now = current.get('chemical_doses_mg_l', {}).get(chemical)
+            current_actual = now.get('actual') if now else None
+            if current_actual is None or current_actual <= 0:
+                continue
+            baseline_actual = current_actual / 0.85
+            st.session_state[f'dose_previous_{chemical}_actual'] = round(baseline_actual, 2)
+            st.session_state[f'dose_previous_{chemical}_planned'] = round(baseline_actual * 1.05, 2)
         st.session_state.pending_demo_source=True
         st.session_state.demo_used=True
         st.rerun()
     if st.session_state.get('demo_used'):
         notes('Historical demo assumes 70% water recovery and 1.50 kWh/m³ electricity intensity.',
-              'Chemical consumption is assumed 15% lower after AquaxGo, for the same chemical type.',
+              'Previous actual chemical dose is assumed to be current actual dose / 0.85 (15% lower current dose). Assumed mg/L; not verified chemical mass savings.',
               'Illustrative downtime baseline: 16 hours; manual interventions baseline: 60.',
               'Illustrative O&M baseline: at least 12,000 or 125% of current costs; compare consistent currency and scope.',
               'Previous equipment demo: runtime counter change +10%, frequency +5%, temperature +8%, vibration +15% versus current (or illustrative fallback).',
@@ -483,42 +477,60 @@ elif page=='Sustainability Impact':
     def difference(field):
         before,now=old.get(field),cur.get(field)
         return before-now if before is not None and now is not None else None
-    chemical_names=sorted(set(cur.get('chemicals_kg',{}))|set(old.get('chemicals_kg',{})))
-    chem_savings={name:get('AI02:'+name) for name in chemical_names}
-    def impact_card(title,value,unit,description,theme):
-        if value is None:
-            metric(title,None,unit,'Enter matching Current and Previous data. '+description,theme)
-        elif value>=0:
-            metric(title,value,unit,'Estimated improvement vs comparable baseline. '+description,theme)
-        else:
-            metric(title.replace('Savings','Increase').replace('Reduction','Increase').replace('Improvement','Decline'),abs(value),unit,
-                   'Performance worsened vs the baseline; not a saving. '+description,theme)
-    dose_table = dosing_summary(a.get('current_df'))
-    manual_doses = cur.get('chemical_doses_mg_l', {})
-    if manual_doses:
-        rows = []
-        for chem, vals in manual_doses.items():
-            planned, actual = vals['planned'], vals['actual']
-            rows.append({'Chemical':chem,'Planned dose (mean)':planned,'Actual dose (mean)':actual,
-                         'Deviation (%)':round((actual/planned-1)*100,2) if planned>0 else None,
-                         'Valid records':None,'Total records':None,'Coverage (%)':None})
-        dose_table = pd.DataFrame(rows)
+    def percent_change(saved, baseline):
+        return (100 * saved / baseline) if saved is not None and baseline is not None and baseline > 0 else None
 
-    dose_below_plan = int((dose_table['Deviation (%)'] < 0).sum()) if not dose_table.empty else None
-    impact=[('Energy Savings',get('E04'),'kWh','Volume-adjusted electricity difference.','Energy'),
-            ('Estimated Scope 2 Emissions Reduction',get('C03'),'tCO₂e','Electricity-related scenario difference; same emission factor assumed. Not a verified AI reduction.','Carbon'),
-            ('Chemical Dosing Below Plan',dose_below_plan,'chemicals','Actual dose below planned dose; assumed mg/L. Not verified AI savings.','Chemicals'),
-            ('Water Recovery Improvement',get('AI01'),'m³','Additional effluent at current influent volume.','Water'),
-            ('Downtime Reduction',difference('downtime_hours'),'hours','Same reporting duration required.','Water'),
-            ('Operational Cost Savings',difference('om_costs'),'currency units','Same currency and cost boundary required.','Energy')]
+    def impact_card(title, value, unit, description, theme, pct=None):
+        pct_text = (f' | Estimated change: {pct:+.2f}%' if pct is not None else ' | Percentage unavailable')
+        if value is None:
+            metric(title, None, unit, 'Matching Current and Previous data required.' + pct_text + ' ' + description, theme)
+        elif value >= 0:
+            metric(title, value, unit, 'Estimated saving / improvement' + pct_text + ' ' + description, theme)
+        else:
+            metric(title.replace('Savings','Increase').replace('Reduction','Increase').replace('Improvement','Decline'),
+                   abs(value), unit, 'Not a saving' + pct_text + ' ' + description, theme)
+
+    # Chemical concentrations cannot be summed across different chemicals.
+    # Show one named chemical in the headline; all matched chemicals are listed below.
+    current_doses = cur.get('chemical_doses_mg_l', {})
+    previous_doses = old.get('chemical_doses_mg_l', {})
+    dose_changes = {}
+    for chem in CHEMS:
+        c = current_doses.get(chem, {}).get('actual')
+        p = previous_doses.get(chem, {}).get('actual')
+        if c is not None and p is not None and p > 0:
+            dose_changes[chem] = (p-c, percent_change(p-c, p), p, c)
+    headline_chem = next(iter(dose_changes), None)
+    chem_value = dose_changes[headline_chem][0] if headline_chem else None
+    chem_pct = dose_changes[headline_chem][1] if headline_chem else None
+
+    energy_saved = get('E04')
+    energy_baseline = get('E03')
+    carbon_saved = get('C03')
+    carbon_baseline = energy_baseline * a['ef'] / 1000 if energy_baseline is not None and a.get('ef') is not None else None
+    water_saved = get('AI01')
+    water_baseline = cur['influent_m3'] * old['treated_m3'] / old['influent_m3'] if old.get('influent_m3') else None
+    downtime_saved = difference('downtime_hours')
+    cost_saved = difference('om_costs')
+    impact=[
+        ('Energy Savings',energy_saved,'kWh','Volume-adjusted historical electricity baseline.','Energy',percent_change(energy_saved,energy_baseline)),
+        ('Estimated Scope 2 Emissions Reduction',carbon_saved,'tCO₂e','Electricity-related scenario; not verified AI reduction.','Carbon',percent_change(carbon_saved,carbon_baseline)),
+        ('Chemical Savings' + (f' — {headline_chem}' if headline_chem else ''),chem_value,'mg/L','Previous actual vs current actual dose; assumed units. Not mass savings.','Chemicals',chem_pct),
+        ('Water Recovery Improvement',water_saved,'m³','Additional effluent vs historical recovery rate.','Water',percent_change(water_saved,water_baseline)),
+        ('Downtime Reduction',downtime_saved,'hours','Comparable reporting duration required.','Water',percent_change(downtime_saved,old.get('downtime_hours'))),
+        ('Operational Cost Savings',cost_saved,'currency units','Same currency and cost boundary required.','Energy',percent_change(cost_saved,old.get('om_costs')))
+    ]
     cards=st.columns(3)
-    for i,(name,value,unit,description,theme) in enumerate(impact):
-        with cards[i%3]:impact_card(name,value,unit,description,theme)
-    if chem_savings:
-        st.caption('Chemical savings are reported separately by chemical; different chemical types are not combined.')
-        ccols=st.columns(min(3,len(chem_savings)))
-        for i,(name,value) in enumerate(chem_savings.items()):
-            with ccols[i%len(ccols)]:impact_card(name+' Chemical Savings',value,'kg','Volume-adjusted.','Chemicals')
+    for i,(name,value,unit,description,theme,pct) in enumerate(impact):
+        with cards[i%3]:
+            impact_card(name,value,unit,description,theme,pct)
+    if dose_changes:
+        st.caption('Chemical dosing comparisons use assumed mg/L and illustrative historical doses where selected; not verified AI or mass savings.')
+        st.dataframe(pd.DataFrame([
+            {'Chemical':name,'Previous actual (mg/L, assumed)':round(p,2),'Current actual (mg/L, assumed)':round(c,2),
+             'Dose reduction (mg/L)':round(diff,2),'Change (%)':round(pct,2)}
+            for name,(diff,pct,p,c) in dose_changes.items()
+        ]),hide_index=True,use_container_width=True)
     manual_diff=difference('manual_interventions')
     if manual_diff is not None:
         st.caption(f'Manual interventions: {fmt(abs(manual_diff),"count")} '+('fewer' if manual_diff>=0 else 'more')+' than previous operations.')
